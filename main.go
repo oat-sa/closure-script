@@ -53,6 +53,10 @@ func getDataFromRedis() []string {
 	pong, err := client.Ping(ctx).Result()
 	log.Debug().Msg(pong)
 
+	if err != nil {
+		log.Panic().Msg("Redis is not ready")
+	}
+
 	ns := os.Getenv("REDIS_CLOSURE_NAMESPACE")
 
 	keys, err := client.Keys(ctx, ns+":*").Result()
