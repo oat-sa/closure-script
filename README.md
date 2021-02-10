@@ -1,5 +1,7 @@
 # PoC of closure Go script
 
+This script fetches data about delivery executions from Redis which should be closed at specific time. And put a message to closure queue (in PubSub)
+
 ## Setup
 
 Need add follwing env variables
