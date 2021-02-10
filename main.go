@@ -13,7 +13,6 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"google.golang.org/api/option"
 )
 
 // ClosureMessageBody structure
@@ -95,7 +94,7 @@ func publishClosureMessages(ids []string) {
 		log.Panic().Msg("GOOGLE_CLOUD_PROJECT or/and CLOSURE_TOPIC_ID not found")
 	}
 
-	psclient, err := pubsub.NewClient(ctx, projectID, option.WithCredentialsFile("egolubev.json"))
+	psclient, err := pubsub.NewClient(ctx, projectID)
 
 	if err != nil {
 		log.Panic().Msg("Failed to connect to PubSub")
