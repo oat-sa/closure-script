@@ -40,6 +40,7 @@ func getDataFromRedis() []string {
 
 	u, err := url.Parse(os.Getenv("REDIS_CLOSURE_DSN"))
 	if err != nil {
+		log.Error().Msgf("%s", err)
 		log.Panic().Msg("Failed to parse Redis DSN")
 	}
 
@@ -53,6 +54,7 @@ func getDataFromRedis() []string {
 	log.Debug().Msg(pong)
 
 	if err != nil {
+		log.Error().Msgf("%s", err)
 		log.Panic().Msg("Redis is not ready")
 	}
 
@@ -60,6 +62,7 @@ func getDataFromRedis() []string {
 
 	keys, err := client.Keys(ctx, ns+":*").Result()
 	if err != nil {
+		log.Error().Msgf("%s", err)
 		log.Panic().Msg("Failed to fetch data from Redis")
 	}
 
@@ -97,8 +100,8 @@ func publishClosureMessages(ids []string) {
 	psclient, err := pubsub.NewClient(ctx, projectID)
 
 	if err != nil {
-		log.Panic().Msg("Failed to connect to PubSub")
 		log.Error().Msgf("%s", err)
+		log.Panic().Msg("Failed to connect to PubSub")
 	}
 
 	defer psclient.Close()
@@ -114,8 +117,8 @@ func publishClosureMessages(ids []string) {
 			body, err := json.Marshal(ClosureMessageBody{DeliveryExecutionID: id})
 
 			if err != nil {
-				log.Error().Msgf("Failed to create a message for %s", id)
 				log.Error().Msgf("%s", err)
+				log.Error().Msgf("Failed to create a message for %s", id)
 				return
 			}
 
@@ -128,8 +131,8 @@ func publishClosureMessages(ids []string) {
 			msg, err := json.Marshal(data)
 
 			if err != nil {
-				log.Error().Msgf("Failed to create a message for %s", id)
 				log.Error().Msgf("%s", err)
+				log.Error().Msgf("Failed to create a message for %s", id)
 				return
 			}
 
@@ -140,8 +143,8 @@ func publishClosureMessages(ids []string) {
 			msgID, err := res.Get(ctx)
 
 			if err != nil {
-				log.Error().Msgf("Failed to send a message for %s", id)
 				log.Error().Msgf("%s", err)
+				log.Error().Msgf("Failed to send a message for %s", id)
 			}
 
 			log.Info().Msgf("Message sent for %s", id)
