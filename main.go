@@ -107,42 +107,47 @@ func publishClosureMessages(ids []string) {
 
 	topic := psclient.Topic(topicID)
 
-	for _, id := range ids {
-		body, err := json.Marshal(ClosureMessageBody{DeliveryExecutionID: id})
+	for _, xID := range ids {
 
-		if err != nil {
-			log.Error().Msgf("Failed to create a message for %s", id)
-			log.Error().Msgf("%s", err)
-			continue
-		}
+		go func(id string) {
 
-		data := &ClosureMessage{
-			Body:       string(body),
-			Properties: []int{},
-			Headers:    headers,
-		}
+			body, err := json.Marshal(ClosureMessageBody{DeliveryExecutionID: id})
 
-		msg, err := json.Marshal(data)
+			if err != nil {
+				log.Error().Msgf("Failed to create a message for %s", id)
+				log.Error().Msgf("%s", err)
+				return
+			}
 
-		if err != nil {
-			log.Error().Msgf("Failed to create a message for %s", id)
-			log.Error().Msgf("%s", err)
-			continue
-		}
+			data := &ClosureMessage{
+				Body:       string(body),
+				Properties: []int{},
+				Headers:    headers,
+			}
 
-		res := topic.Publish(ctx, &pubsub.Message{
-			Data: msg,
-		})
+			msg, err := json.Marshal(data)
 
-		msgID, err := res.Get(ctx)
+			if err != nil {
+				log.Error().Msgf("Failed to create a message for %s", id)
+				log.Error().Msgf("%s", err)
+				return
+			}
 
-		if err != nil {
-			log.Error().Msgf("Failed to send a message for %s", id)
-			log.Error().Msgf("%s", err)
-		}
+			res := topic.Publish(ctx, &pubsub.Message{
+				Data: msg,
+			})
 
-		log.Info().Msgf("Message sent for %s", id)
-		log.Info().Msgf("Message ID is %s", msgID)
+			msgID, err := res.Get(ctx)
+
+			if err != nil {
+				log.Error().Msgf("Failed to send a message for %s", id)
+				log.Error().Msgf("%s", err)
+			}
+
+			log.Info().Msgf("Message sent for %s", id)
+			log.Info().Msgf("Message ID is %s", msgID)
+		}(xID)
+
 	}
 }
 
