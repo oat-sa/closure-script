@@ -87,7 +87,7 @@ func getDataFromRedis() []string {
 		}
 	}
 
-	log.Info().Msgf("Keys found: %d \n", len(keys))
+	log.Info().Msgf("Keys found: %d", len(keys))
 
 	now := time.Now().Unix()
 
@@ -184,7 +184,7 @@ func main() {
 
 	ids := getDataFromRedis()
 
-	log.Info().Msgf("Expired delivery executions found: %d \n", len(ids))
+	log.Info().Msgf("Expired delivery executions found: %d", len(ids))
 
 	if len(ids) > 0 {
 		publishClosureMessages(ids)
