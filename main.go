@@ -60,10 +60,24 @@ func getDataFromRedis() []string {
 
 	ns := os.Getenv("REDIS_CLOSURE_NAMESPACE")
 
-	keys, err := client.Keys(ctx, ns+":*").Result()
-	if err != nil {
-		log.Error().Msgf("%s", err)
-		log.Panic().Msg("Failed to fetch data from Redis")
+	var keys []string
+	var cursor uint64
+
+	for {
+		var chunk []string
+		var err error
+		chunk, cursor, err = client.Scan(ctx, cursor, ns+":*", 1000).Result()
+
+		if err != nil {
+			log.Error().Msgf("%s", err)
+			log.Panic().Msg("Failed to fetch data from Redis")
+		}
+
+		keys = append(keys, chunk...)
+
+		if cursor == 0 {
+			break
+		}
 	}
 
 	log.Info().Msgf("Keys found: %d \n", len(keys))
