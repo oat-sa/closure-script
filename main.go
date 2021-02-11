@@ -38,7 +38,14 @@ var headers = map[string]string{
 
 func getDataFromRedis() []string {
 
-	u, err := url.Parse(os.Getenv("REDIS_CLOSURE_DSN"))
+	dns := os.Getenv("REDIS_CLOSURE_DSN")
+
+	if dns == "" {
+		log.Panic().Msg("REDIS_CLOSURE_DSN not found")
+	}
+
+	u, err := url.Parse(dns)
+
 	if err != nil {
 		log.Error().Msgf("%s", err)
 		log.Panic().Msg("Failed to parse Redis DSN")
@@ -82,7 +89,7 @@ func getDataFromRedis() []string {
 
 	log.Info().Msgf("Keys found: %d \n", len(keys))
 
-	now := time.Now().UnixNano()
+	now := time.Now().Unix()
 
 	var expiredKeys []string
 	var deliveryExecutionIds []string
@@ -98,6 +105,8 @@ func getDataFromRedis() []string {
 		}
 	}
 
+	// a bit risky, need to refactor in final version, coz we delete data from Redis,
+	// but the application can panic in next steps (PubSub, etc)
 	client.Del(ctx, expiredKeys...)
 
 	return deliveryExecutionIds
