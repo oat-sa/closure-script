@@ -3,14 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"net/url"
 	"os"
-	"strconv"
-	"strings"
+	"runtime"
+	"sync"
 	"time"
 
 	pubsub "cloud.google.com/go/pubsub"
-	"github.com/go-redis/redis/v8"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -18,162 +16,85 @@ import (
 // ClosureMessageBody structure
 type ClosureMessageBody struct {
 	DeliveryExecutionID string `json:"deliveryExecutionId"`
+	CloseAt             int32  `json:"closeAt"`
 }
 
-// ClosureMessage structure
-type ClosureMessage struct {
+// ResultsMessageBody structure
+type ResultsMessageBody struct {
+	ID                  string `json:"id"`
+	DeliveryExecutionID string `json:"deliveryExecutionId"`
+	ForceClosure        bool   `json:"forceClosure"`
+}
+
+// Message structure
+type Message struct {
 	Body       string      `json:"body"`
 	Properties interface{} `json:"properties"`
 	Headers    interface{} `json:"headers"`
 }
 
-var client *redis.Client
 var ctx = context.Background()
-var psclient *pubsub.Client
 
-var headers = map[string]string{
-	"Content-Type": "application/json",
-	"type":         `App\Messenger\Message\DeliveryExecutionClosureMessage`,
-}
+func sendClosureMessage(client *pubsub.Client, msg []byte, wg *sync.WaitGroup) {
+	defer wg.Done()
 
-func getDataFromRedis() []string {
+	topic := client.Topic(os.Getenv("CLOSURE_TOPIC_ID"))
 
-	dns := os.Getenv("REDIS_CLOSURE_DSN")
-
-	if dns == "" {
-		log.Panic().Msg("REDIS_CLOSURE_DSN not found")
-	}
-
-	u, err := url.Parse(dns)
-
-	if err != nil {
-		log.Error().Msgf("%s", err)
-		log.Panic().Msg("Failed to parse Redis DSN")
-	}
-
-	client := redis.NewClient(&redis.Options{
-		Addr: u.Host,
+	res := topic.Publish(ctx, &pubsub.Message{
+		Data: msg,
 	})
 
-	defer client.Close()
-
-	pong, err := client.Ping(ctx).Result()
-	log.Debug().Msg(pong)
+	_, err := res.Get(ctx)
 
 	if err != nil {
 		log.Error().Msgf("%s", err)
-		log.Panic().Msg("Redis is not ready")
+		log.Error().Msgf("Failed to publish a message for Closure topic")
+		return
 	}
-
-	ns := os.Getenv("REDIS_CLOSURE_NAMESPACE")
-
-	var keys []string
-	var cursor uint64
-
-	for {
-		var chunk []string
-		var err error
-		chunk, cursor, err = client.Scan(ctx, cursor, ns+":*", 1000).Result()
-
-		if err != nil {
-			log.Error().Msgf("%s", err)
-			log.Panic().Msg("Failed to fetch data from Redis")
-		}
-
-		keys = append(keys, chunk...)
-
-		if cursor == 0 {
-			break
-		}
-	}
-
-	log.Info().Msgf("Keys found: %d", len(keys))
-
-	now := time.Now().Unix()
-
-	var expiredKeys []string
-	var deliveryExecutionIds []string
-
-	for _, key := range keys {
-		parts := strings.Split(key, ":")
-
-		if timestamp, err := strconv.ParseInt(parts[2], 10, 64); err == nil {
-			if now >= timestamp {
-				expiredKeys = append(expiredKeys, key)
-				deliveryExecutionIds = append(deliveryExecutionIds, parts[1])
-			}
-		}
-	}
-
-	// a bit risky, need to refactor in final version, coz we delete data from Redis,
-	// but the application can panic in next steps (PubSub, etc)
-	client.Del(ctx, expiredKeys...)
-
-	return deliveryExecutionIds
 }
 
-func publishClosureMessages(ids []string) {
-	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT")
-	topicID := os.Getenv("CLOSURE_TOPIC_ID")
+func sendResultsMessage(client *pubsub.Client, deliveryExecutionID string, wg *sync.WaitGroup) {
+	defer wg.Done()
 
-	if topicID == "" || projectID == "" {
-		log.Panic().Msg("GOOGLE_CLOUD_PROJECT or/and CLOSURE_TOPIC_ID not found")
-	}
+	topic := client.Topic(os.Getenv("RESULTS_TOPIC_ID"))
 
-	psclient, err := pubsub.NewClient(ctx, projectID)
+	body, err := json.Marshal(ResultsMessageBody{
+		ID:                  deliveryExecutionID, // ?
+		DeliveryExecutionID: deliveryExecutionID,
+		ForceClosure:        true,
+	})
 
 	if err != nil {
 		log.Error().Msgf("%s", err)
-		log.Panic().Msg("Failed to connect to PubSub")
+		log.Error().Msgf("Failed to create a message body for Results topic")
+		return
 	}
 
-	defer psclient.Close()
+	msg, err := json.Marshal(&Message{
+		Body:       string(body),
+		Properties: []int{},
+		Headers: map[string]string{
+			"Content-Type": "application/json",
+			"type":         `App\Messenger\Message\ResultExtractionMessage`,
+		},
+	})
 
-	log.Info().Msg("Pubsub Client Created")
+	if err != nil {
+		log.Error().Msgf("%s", err)
+		log.Error().Msgf("Failed to create a message for Results topic")
+		return
+	}
 
-	topic := psclient.Topic(topicID)
+	res := topic.Publish(ctx, &pubsub.Message{
+		Data: msg,
+	})
 
-	for _, xID := range ids {
+	_, err = res.Get(ctx)
 
-		go func(id string) {
-
-			body, err := json.Marshal(ClosureMessageBody{DeliveryExecutionID: id})
-
-			if err != nil {
-				log.Error().Msgf("%s", err)
-				log.Error().Msgf("Failed to create a message for %s", id)
-				return
-			}
-
-			data := &ClosureMessage{
-				Body:       string(body),
-				Properties: []int{},
-				Headers:    headers,
-			}
-
-			msg, err := json.Marshal(data)
-
-			if err != nil {
-				log.Error().Msgf("%s", err)
-				log.Error().Msgf("Failed to create a message for %s", id)
-				return
-			}
-
-			res := topic.Publish(ctx, &pubsub.Message{
-				Data: msg,
-			})
-
-			msgID, err := res.Get(ctx)
-
-			if err != nil {
-				log.Error().Msgf("%s", err)
-				log.Error().Msgf("Failed to send a message for %s", id)
-			}
-
-			log.Info().Msgf("Message sent for %s", id)
-			log.Info().Msgf("Message ID is %s", msgID)
-		}(xID)
-
+	if err != nil {
+		log.Error().Msgf("%s", err)
+		log.Error().Msgf("Failed to publish a message for Results topic")
+		return
 	}
 }
 
@@ -182,14 +103,115 @@ func main() {
 
 	log.Info().Msg("Closure script starts")
 
-	ids := getDataFromRedis()
+	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT")
+	subscriptionID := os.Getenv("CLOSURE_SUB_ID")
 
-	log.Info().Msgf("Expired delivery executions found: %d", len(ids))
+	timeout := time.Second * 10
+	ticker := time.NewTicker(timeout)
+	defer ticker.Stop()
 
-	if len(ids) > 0 {
-		publishClosureMessages(ids)
+	var cancel context.CancelFunc
+	var wg sync.WaitGroup
+	var count int
+	var resendClosure [][]byte
+	var countToClose int
+
+	if subscriptionID == "" || projectID == "" {
+		log.Panic().Msg("GOOGLE_CLOUD_PROJECT or/and CLOSURE_SUB_ID not found")
 	}
 
-	log.Info().Msg("Closure script finishes")
+	client, err := pubsub.NewClient(ctx, projectID)
 
+	if err != nil {
+		log.Error().Msgf("%s", err)
+		log.Panic().Msg("Failed to connect to PubSub")
+	}
+
+	defer client.Close()
+
+	log.Info().Msg("Pubsub Client Created")
+
+	log.Info().Msg("Subscribing to " + subscriptionID)
+	sub := client.Subscription(subscriptionID)
+
+	sub.ReceiveSettings.NumGoroutines = 10 * runtime.NumCPU()
+	sub.ReceiveSettings.MaxOutstandingMessages = -1
+	sub.ReceiveSettings.MaxOutstandingBytes = -1
+	sub.ReceiveSettings.Synchronous = false
+
+	wg.Add(1)
+
+	go func() {
+		var cctx context.Context
+		cctx, cancel = context.WithCancel(ctx)
+
+		now := time.Now().Unix()
+
+		err = sub.Receive(cctx, func(ctx context.Context, m *pubsub.Message) {
+			log.Debug().Msgf("Received: %s", m.ID)
+			count++
+			ticker.Reset(timeout)
+
+			m.Ack()
+			log.Debug().Msgf("Acknowledgement : %s", m.ID)
+
+			var msg Message
+
+			err := json.Unmarshal(m.Data, &msg)
+
+			if err != nil {
+				log.Error().Msgf("%s", err)
+				log.Error().Msg("Failed to unmarshal a message")
+			}
+
+			var msgBody ClosureMessageBody
+
+			err = json.Unmarshal([]byte(msg.Body), &msgBody)
+
+			if err != nil {
+				log.Error().Msgf("%s", err)
+				log.Error().Msg("Failed to unmarshal a message body")
+			}
+
+			if now >= int64(msgBody.CloseAt) {
+				wg.Add(1)
+				countToClose++
+				go sendResultsMessage(client, msgBody.DeliveryExecutionID, &wg)
+			} else {
+				// send to topic ONLY after receiving stops
+				resendClosure = append(resendClosure, m.Data)
+			}
+		})
+
+		if err != nil {
+			log.Error().Msgf("%s", err)
+			log.Panic().Msg("Failed to receive a message")
+		}
+	}()
+
+	for {
+		select {
+		case <-ticker.C:
+			log.Info().Msgf("Idle timeout: %s", timeout)
+			ticker.Stop()
+			cancel()
+
+			log.Info().Msgf("Received: %d", count)
+			log.Info().Msgf("Need to close: %d", countToClose)
+
+			log.Info().Msgf("Need to resend: %d", len(resendClosure))
+			for _, msg := range resendClosure {
+				wg.Add(1)
+				go sendClosureMessage(client, msg, &wg)
+			}
+
+			wg.Done()
+			break
+		}
+		break
+	}
+
+	wg.Wait()
+
+	log.Info().Msg("Closure script finishes")
 }
