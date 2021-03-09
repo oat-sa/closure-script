@@ -173,7 +173,11 @@ func main() {
 				log.Error().Msg("Failed to unmarshal a message body")
 			}
 
-			if now >= int64(msgBody.CloseAt) {
+			timeLeft := int64(msgBody.CloseAt) - now
+
+			log.Debug().Msgf("Seconds left: %d", timeLeft)
+
+			if timeLeft <= 0 {
 				wg.Add(1)
 				countToClose++
 				go sendResultsMessage(client, msgBody.DeliveryExecutionID, &wg)
