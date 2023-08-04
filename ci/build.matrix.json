@@ -1,0 +1,8 @@
+{
+  "include": [
+    {
+      "app": "testrunner/closure",
+      "dockerfile-path": "./Dockerfile"
+    }
+  ]
+}
