@@ -1,0 +1,41 @@
+# Link: https://github.com/oat-sa/ci-pipelines/releases/tag/ci-v1.2.3
+# Version: ci-v1.2.3
+# Timestamp: 2023-01-24T12:04:49Z
+# Authors: #squad-foundations
+# 
+# Disclaimer
+# ==========
+# 
+# This file is added through an automatic PR from oat-sa/ci-pipelines; it is strongly discouraged to edit it manually.
+# Please contact authors for any feature requests.
+# 
+name: Build image
+
+on:
+  push:
+    branches:
+      - master
+      - main
+      - develop
+      - feature/**
+      - feat/**
+      - fix/**
+      - release-*
+      - reusable-workflow # For tests only
+    tags: ["*"]
+
+jobs:
+  call-ng-build-image:
+    uses: oat-sa/ci-pipelines/.github/workflows/reuse-ng-image-build.yaml@master
+    secrets: inherit
+    with:
+      # Enable this flag manually for a dynamic monorepo build
+      MONOREPO: false
+      # GCR Prefix where to push the image once built
+      # DEFAULT_IMAGE_PATH_PREFIX: ${{ secrets.GCR_ARTEFACTS_PATH }}
+      # Authors (ideally the squad channel to track back from the image metadata)
+      DEFAULT_AUTHORS: "#squad-technical-enablers"
+      DEFAULT_RELEASE_TAG: latest
+      DEFAULT_CONTEXT: .
+      DEFAULT_DOCKERFILE_PATH: ./Dockerfile
+      DEFAULT_PUSH: true
